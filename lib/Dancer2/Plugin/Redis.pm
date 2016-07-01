@@ -9,7 +9,7 @@ BEGIN {
 
 use Carp qw( carp croak );
 use Dancer2::Core::Types qw( Maybe Undef InstanceOf );
-use Dancer2::Plugin;  # makes this a Moo::Role!
+use Dancer2::Plugin 0.200000;
 use Redis;
 use Safe::Isa;
 use Try::Tiny;
@@ -79,7 +79,7 @@ has _serialization => (
   isa     => Maybe [ $TYPE_SERIALIZATIONOBJECT ],
   builder => sub {
     my ($dsl1) = @_;
-    my $conf = plugin_setting;
+    my $conf = $dsl1->config;
     my $serialization;
 
     # Setup serialization.
@@ -105,7 +105,7 @@ has _redis => (
   isa     => InstanceOf ['Redis'] | InstanceOf ['t::TestApp::RedisMock'],
   builder => sub {
     my ($dsl2) = @_;
-    my $conf = plugin_setting;
+    my $conf = $dsl2->config;
 
     if ( $conf->{test_mock} ) {
       require t::TestApp::RedisMock;
@@ -153,6 +153,10 @@ has _redis => (
 ############################################################################
 
 sub _plugin {
+  shift->redis_plugin;
+}
+
+sub redis_plugin {
   my ($dsl) = @_;
   return $dsl;
 }
@@ -160,6 +164,10 @@ sub _plugin {
 ############################################################################
 
 sub _get {
+  shift->redis_get(@_);
+}
+
+sub redis_get {
   my ( $dsl, $key ) = @_;
   croak q{Redis key is required} unless $key;
   my $data = $dsl->_redis->get($key);
@@ -172,6 +180,10 @@ sub _get {
 ############################################################################
 
 sub _mget {
+  shift->redis_mget(@_);
+}
+
+sub redis_mget {
   my ( $dsl, @keys ) = @_;
   croak q{Redis key is required} unless scalar @keys;
   my @data = $dsl->_redis->mget(@keys);
@@ -184,6 +196,10 @@ sub _mget {
 ############################################################################
 
 sub _set {
+  shift->redis_set(@_);
+}
+
+sub redis_set {
   my ( $dsl, $key, $data ) = @_;
   croak q{Redis key is required} unless $key;
   if ( my $serialization = $dsl->_serialization ) {
@@ -195,6 +211,10 @@ sub _set {
 ############################################################################
 
 sub _mset {
+  shift->redis_mset(@_);
+}
+
+sub redis_mset {
   my ( $dsl, %key_data ) = @_;
   croak q{Redis key is required} unless scalar %key_data;
   if ( my $serialization = $dsl->_serialization ) {
@@ -206,6 +226,10 @@ sub _mset {
 ############################################################################
 
 sub _expire {
+  shift->redis_expire(@_);
+}
+
+sub redis_expire {
   my ( $dsl, $key, $timeout ) = @_;
   croak q{Redis key is required} unless $key;
   return $dsl->_redis->persist($key) unless $timeout;
@@ -215,6 +239,10 @@ sub _expire {
 ############################################################################
 
 sub _del {
+  shift->redis_del(@_);
+}
+
+sub redis_del {
   my ( $dsl, $key ) = @_;
   croak q{Redis key is required} unless $key;
   return $dsl->_redis->del($key);
@@ -222,7 +250,8 @@ sub _del {
 
 ############################################################################
 
-register redis_plugin => \&_plugin, { is_global => 1 };
+plugin_keywords 'redis_plugin', 'redis_get', 'redis_mget', 'redis_set',
+  'redis_mset', 'redis_expire', 'redis_del';
 
 =method redis_plugin
 
@@ -240,41 +269,21 @@ instance.
       return $self->redis_plugin->_get( 'key' );
     }
 
-=cut
-
-register redis_get => \&_get, { is_global => 1 };
-
 =method redis_get
 
 Returns the actual value stored in Redis of a single key.
-
-=cut
-
-register redis_mget => \&_mget, { is_global => 1 };
 
 =method redis_mget
 
 Returns the values stored in Redis for one or more keys.
 
-=cut
-
-register redis_set => \&_set, { is_global => 1 };
-
 =method redis_set
 
 Assign a new value to a singe key in Redis.
 
-=cut
-
-register redis_mset => \&_mset, { is_global => 1 };
-
 =method redis_mset
 
 Assign one or more new values to keys in Redis.
-
-=cut
-
-register redis_expire => \&_expire, { is_global => 1 };
 
 =method redis_expire
 
@@ -286,17 +295,11 @@ false value will turn off expiration.
     redis_expire 'key', undef; # removes expire from key
     redis_expire 'key';        # so will this
 
-=cut
-
-register redis_del => \&_del, { is_global => 1 };
-
 =method redis_del
 
 Deletes a key within Redis.
 
 =cut
-
-register_plugin for_versions => [2];
 
 ############################################################################
 
