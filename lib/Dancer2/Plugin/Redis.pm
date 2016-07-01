@@ -76,9 +76,10 @@ my $TYPE_SERIALIZATIONOBJECT = Type::Tiny->new(
 
 has _serialization => (
   is      => 'lazy',
-  # TODO: Restore the "isa =>" to a working default
-  # isa     => Maybe [ $TYPE_SERIALIZATIONOBJECT ],
-  builder => sub {
+  isa     => Maybe [ $TYPE_SERIALIZATIONOBJECT ],
+);
+
+sub _build__serialization {
     my ($dsl1) = @_;
     my $conf = $dsl1->config;
     my $serialization;
@@ -98,8 +99,7 @@ has _serialization => (
       };
     }
     return $serialization;
-  },
-);
+};
 
 has _redis => (
   is      => 'lazy',
