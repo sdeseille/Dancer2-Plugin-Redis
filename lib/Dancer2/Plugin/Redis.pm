@@ -47,20 +47,20 @@ In your source files:
     package MyDancer2App;
     use Dancer2;
     use Dancer2::Plugin::Redis;
-    
+
     # Outputs the counter value stored in Redis, increments and saves it back to Redis.
     get '/' => sub {
       my $counter = redis_get('counter');  # Get the counter value from Redis.
       redis_set( ++$counter );             # Increment counter value by 1 and save it back to Redis.
       return $counter;
     };
-    
+
     # (optional) Function called on Redis connect.
     sub redis_on_connect {
       my ( $redis ) = @_;
-      
+
       # do some stuff with the bare Redis interface. This is NOT Dancer2::Plugin::Redis!
-      
+
       return;
     }
 
@@ -151,6 +151,72 @@ sub _build__redis {
 
     return Redis->new(%opts);
 }
+
+has _redis_cnx => (
+    is      => 'lazy',
+    isa     => InstanceOf ['Redis'] | InstanceOf ['t::TestApp::RedisMock'],
+);
+
+sub _build__redis_cnx {
+    my ($dsl3, $named_cnx) = @_;
+    my $conf = $dsl3->config->{connections}{$named_cnx};
+
+    if ( $conf->{test_mock} ) {
+      require t::TestApp::RedisMock;
+      return t::TestApp::RedisMock->new;
+    }
+
+    my %opts;
+
+    # Build Redis->new settings.
+    for (qw( server sock password reconnect every name debug )) {
+      $opts{$_} = $conf->{$_} if exists $conf->{$_};
+    }
+
+    # Cleanup settings.
+    delete $opts{server} if $opts{sock};   # prefer UNIX/Linux sockets.
+    delete $opts{sock}   if $opts{server};
+    delete $opts{password} if exists $opts{password} && ( !defined $opts{password} || $opts{password} eq '' );
+    delete $opts{name} unless $opts{name};
+
+    # Validate reconnect settings.
+    if ( ( exists $opts{reconnect} || exists $opts{every} ) && ( !$opts{reconnect} || !$opts{every} ) ) {
+      $dsl3->error(q{Incomplete Redis configuration for 'reconnect' and 'every', skipping...});
+      delete $opts{reconnect};
+      delete $opts{every};
+    }
+
+    # Validate on_connect settings.
+    if ( exists $conf->{on_connect} ) {
+      if ( !exists &{ $conf->{on_connect} } ) {
+        $dsl3->error(q{Invalid Redis configuration for 'on_connect', skipping...});
+      }
+      else {
+        $opts{on_connect} = \&{ $conf->{on_connect} };
+      }
+    }
+
+    # Validate connection settings.
+    $dsl3->error(q{Incomplete Redis configuration: required is either 'server' or 'sock'})
+      if !$opts{server} && !$opts{sock};
+
+    return Redis->new(%opts);
+}
+
+############################################################################
+
+sub _cnx {
+  shift->redis_cnx(@_);
+}
+
+sub redis_cnx {
+  my ( $dsl, $connection ) = @_;
+  croak q{Connection name is required} unless $connection;
+  return $dsl->_redis_cnx($connection);
+}
+
+############################################################################
+
 
 ############################################################################
 
@@ -253,7 +319,7 @@ sub redis_del {
 ############################################################################
 
 plugin_keywords 'redis_plugin', 'redis_get', 'redis_mget', 'redis_set',
-  'redis_mset', 'redis_expire', 'redis_del';
+  'redis_mset', 'redis_expire', 'redis_del', 'redis_cnx';
 
 =method redis_plugin
 
@@ -263,10 +329,10 @@ Redis connection there. You will need to access the actual methods of the the pl
 instance.
 
     my $business_logic = Business::Logic->new( redis_plugin => redis_plugin() );
-    
+
     # somewhere else ...
     package Business::Logic;
-    
+
     sub frobnicate {
       return $self->redis_plugin->_get( 'key' );
     }
@@ -293,7 +359,7 @@ Assign a new expiration timeout to a singe key in Redis. C<undef> or a
 false value will turn off expiration.
 
     redis_expire 'key', 10; # will expire in ten seconds
-    
+
     redis_expire 'key', undef; # removes expire from key
     redis_expire 'key';        # so will this
 
